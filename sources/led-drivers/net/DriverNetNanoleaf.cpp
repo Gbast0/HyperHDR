@@ -153,7 +153,7 @@ bool DriverNetNanoleaf::initLedsConfiguration()
         if (_deviceModel == "NL72K1")
         {
             // Query the length endpoint to get the number of LEDs
-            _restApi->setPath(QString("/api/v1/%1/length").arg(_authToken));
+            _restApi->setPath(QString("/length"));
             httpResponse lengthResponse = _restApi->get();
             if (lengthResponse.error())
             {

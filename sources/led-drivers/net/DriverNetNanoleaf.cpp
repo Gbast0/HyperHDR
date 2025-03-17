@@ -559,76 +559,70 @@ bool DriverNetNanoleaf::powerOff()
 
 int DriverNetNanoleaf::write(const std::vector<ColorRgb>& ledValues)
 {
-	int retVal = 0;
+    int retVal = 0;
 
-	//
-	//    nPanels         2B
-	//    panelID         2B
-	//    <R> <G> <B>     3B
-	//    <W>             1B
-	//    tranitionTime   2B
-	//
-	// Note: Nanoleaf Light Panels (Aurora) now support External Control V2 (tested with FW 3.2.0)
+    // Frame structure: 
+    // - 2B: Number of Panels
+    // - (For each panel) 2B: PanelID, 1B: R, 1B: G, 1B: B, 1B: W (0), 2B: TransitionTime
+    int udpBufferSize = 2 + _panelLedCount * 8;  // Each panel entry is 8 bytes
+    QByteArray udpbuffer;
+    udpbuffer.resize(udpBufferSize);
 
-	int udpBufferSize = STREAM_FRAME_PANEL_NUM_SIZE + _panelLedCount * STREAM_FRAME_PANEL_INFO_SIZE;
+    int i = 0;
 
-	QByteArray udpbuffer;
-	udpbuffer.resize(udpBufferSize);
+    // Set the number of panels (Big-Endian)
+    qToBigEndian<quint16>(static_cast<quint16>(_panelLedCount), udpbuffer.data() + i);
+    i += 2;
 
-	int i = 0;
+    // Maintain LED counter independent from PanelCounter
+    int ledCounter = 0;
+    for (int panelCounter = 0; panelCounter < _panelLedCount; panelCounter++)
+    {
+        int panelID = _panelIds[panelCounter];
+        ColorRgb color;
 
-	// Set number of panels
-	qToBigEndian<quint16>(static_cast<quint16>(_panelLedCount), udpbuffer.data() + i);
-	i += 2;
+        // Assign colors to configured panels, others default to BLACK
+        if (panelCounter >= _startPos && panelCounter <= _endPos) 
+        {
+            color = static_cast<ColorRgb>(ledValues.at(ledCounter));
+            ++ledCounter;
+        }
+        else 
+        {
+            color = ColorRgb::BLACK;
+        }
 
-	ColorRgb color;
+        // Set Panel ID (Big-Endian)
+        qToBigEndian<quint16>(static_cast<quint16>(panelID), udpbuffer.data() + i);
+        i += 2;
 
-	//Maintain LED counter independent from PanelCounter
-	int ledCounter = 0;
-	for (int panelCounter = 0; panelCounter < _panelLedCount; panelCounter++)
-	{
-		int panelID = _panelIds[panelCounter];
+        // Set Panel's RGB color
+        udpbuffer[i++] = static_cast<char>(color.red);
+        udpbuffer[i++] = static_cast<char>(color.green);
+        udpbuffer[i++] = static_cast<char>(color.blue);
 
-		// Set panels configured
-		if (panelCounter >= _startPos && panelCounter <= _endPos) {
-			color = static_cast<ColorRgb>(ledValues.at(ledCounter));
-			++ledCounter;
-		}
-		else
-		{
-			// Set panels not configured to black;
-			color = ColorRgb::BLACK;
-			DebugIf(verbose3, _log, "[%d] >= panelLedCount [%d] => Set to BLACK", panelCounter, _panelLedCount);
-		}
+        // Set White LED (always 0)
+        udpbuffer[i++] = 0;
 
-		// Set panelID
-		qToBigEndian<quint16>(static_cast<quint16>(panelID), udpbuffer.data() + i);
-		i += 2;
+        // Set Transition Time (Big-Endian, 5 = 500ms)
+        quint16 transitionTime = 5; // 500ms
+        qToBigEndian<quint16>(transitionTime, udpbuffer.data() + i);
+        i += 2;
 
-		// Set panel's color LEDs
-		udpbuffer[i++] = static_cast<char>(color.red);
-		udpbuffer[i++] = static_cast<char>(color.green);
-		udpbuffer[i++] = static_cast<char>(color.blue);
+        DebugIf(verbose3, _log, "[%u] Color: {%u,%u,%u}", panelCounter, color.red, color.green, color.blue);
+    }
 
-		// Set white LED
-		udpbuffer[i++] = 0; // W not set manually
+    if (verbose3)
+    {
+        Debug(_log, "UDP-Address [%s], UDP-Port [%u], udpBufferSize[%d], Bytes to send [%d]", 
+            QSTRING_CSTR(_address.toString()), _port, udpBufferSize, i);
+        Debug(_log, "packet: [%s]", QSTRING_CSTR(toHex(udpbuffer, 64)));
+    }
 
-		// Set transition time
-		unsigned char tranitionTime = 1; // currently fixed at value 1 which corresponds to 100ms
-		qToBigEndian<quint16>(static_cast<quint16>(tranitionTime), udpbuffer.data() + i);
-		i += 2;
-
-		DebugIf(verbose3, _log, "[%u] Color: {%u,%u,%u}", panelCounter, color.red, color.green, color.blue);
-	}
-
-	if (verbose3)
-	{
-		Debug(_log, "UDP-Address [%s], UDP-Port [%u], udpBufferSize[%d], Bytes to send [%d]", QSTRING_CSTR(_address.toString()), _port, udpBufferSize, i);
-		Debug(_log, "packet: [%s]", QSTRING_CSTR(toHex(udpbuffer, 64)));
-	}
-
-	retVal = writeBytes(udpbuffer);
-	return retVal;
+    // Send the frame via UDP
+    retVal = writeBytes(udpbuffer);
+    return retVal;
 }
+
 
 bool DriverNetNanoleaf::isRegistered = hyperhdr::leds::REGISTER_LED_DEVICE("nanoleaf", "leds_group_2_network", DriverNetNanoleaf::construct);

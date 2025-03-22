@@ -31,7 +31,6 @@ namespace {
 	const char PANEL_ID[] = "panelId";
 	const char PANEL_POSITIONDATA[] = "positionData";
 	const char PANEL_SHAPE_TYPE[] = "shapeType";
-
 	//const char PANEL_ORIENTATION[] = "0";
 	const char PANEL_POS_X[] = "x";
 	const char PANEL_POS_Y[] = "y";
@@ -73,14 +72,6 @@ namespace {
 	const char SSDP_FILTER_HEADER[] = "ST";
 	const char SSDP_CANVAS[] = "nanoleaf:nl29";
 	const char SSDP_LIGHTPANELS[] = "nanoleaf_aurora:light";
-
-	// Nanoleaf Stripe API elements
-	const char API_LENGHT[] = "length";
-	const char LENGHT_NUMLEDS[] = "numLEDs";
-
-
-
-
 } //End of constants
 
 // Nanoleaf Panel Shapetypes
@@ -123,168 +114,180 @@ LedDevice* DriverNetNanoleaf::construct(const QJsonObject& deviceConfig)
 
 bool DriverNetNanoleaf::initLedsConfiguration()
 {
-    bool isInitOK = true;
+	bool isInitOK = true;
 
-    // Get Nanoleaf device details and configuration
+	// Get Nanoleaf device details and configuration
 
-    // Read Panel count and panel Ids
-    _restApi->setPath(API_ROOT);
-    httpResponse response = _restApi->get();
-    if (response.error())
-    {
-        this->setInError(response.getErrorReason());
-        isInitOK = false;
-    }
-    else
-    {
-        QJsonObject jsonAllPanelInfo = response.getBody().object();
+	// Read Panel count and panel Ids
+	_restApi->setPath(API_ROOT);
+	httpResponse response = _restApi->get();
+	if (response.error())
+	{
+		this->setInError(response.getErrorReason());
+		isInitOK = false;
+	}
+	else
+	{
+		QJsonObject jsonAllPanelInfo = response.getBody().object();
 
-        QString deviceName = jsonAllPanelInfo[DEV_DATA_NAME].toString();
-        _deviceModel = jsonAllPanelInfo[DEV_DATA_MODEL].toString();
-        QString deviceManufacturer = jsonAllPanelInfo[DEV_DATA_MANUFACTURER].toString();
-        _deviceFirmwareVersion = jsonAllPanelInfo[DEV_DATA_FIRMWAREVERSION].toString();
+		QString deviceName = jsonAllPanelInfo[DEV_DATA_NAME].toString();
+		_deviceModel = jsonAllPanelInfo[DEV_DATA_MODEL].toString();
+		QString deviceManufacturer = jsonAllPanelInfo[DEV_DATA_MANUFACTURER].toString();
+		_deviceFirmwareVersion = jsonAllPanelInfo[DEV_DATA_FIRMWAREVERSION].toString();
 
-        Debug(_log, "Name           : %s", QSTRING_CSTR(deviceName));
-        Debug(_log, "Model          : %s", QSTRING_CSTR(_deviceModel));
-        Debug(_log, "Manufacturer   : %s", QSTRING_CSTR(deviceManufacturer));
-        Debug(_log, "FirmwareVersion: %s", QSTRING_CSTR(_deviceFirmwareVersion));
+		Debug(_log, "Name           : %s", QSTRING_CSTR(deviceName));
+		Debug(_log, "Model          : %s", QSTRING_CSTR(_deviceModel));
+		Debug(_log, "Manufacturer   : %s", QSTRING_CSTR(deviceManufacturer));
+		Debug(_log, "FirmwareVersion: %s", QSTRING_CSTR(_deviceFirmwareVersion));
 
-        int panelNum = 0;
-        if (_deviceModel == "NL72K1")
-        {
-            // Query the length endpoint to get the number of LEDs
-            _restApi->setPath(QString("/length"));
-            httpResponse lengthResponse = _restApi->get();
-            if (lengthResponse.error())
-            {
-                this->setInError(lengthResponse.getErrorReason());
-                isInitOK = false;
-            }
-            else
-            {
-                QJsonObject lengthInfo = lengthResponse.getBody().object();
-                panelNum = lengthInfo[LENGHT_NUMLEDS].toInt();
-                _panelLedCount = panelNum;
-            }
-        }
-        else
-        {
-            // Get panel details from /panelLayout/layout
-            QJsonObject jsonPanelLayout = jsonAllPanelInfo[API_PANELLAYOUT].toObject();
-            QJsonObject jsonLayout = jsonPanelLayout[PANEL_LAYOUT].toObject();
+		QJsonObject jsonPanelLayout;
+		QJsonObject jsonLayout;
 
-            panelNum = jsonLayout[PANEL_NUM].toInt();
-            const QJsonArray positionData = jsonLayout[PANEL_POSITIONDATA].toArray();
+		if (_deviceModel == "NL72K1")
+		{
+			Debug(_log, "Custom Layout: %s", QSTRING_CSTR(_deviceModel));
+			// Make a new request to get the length information
+			int length = 300;
 
-            std::map<int, std::map<int, int>> panelMap;
+			QJsonObject globalOrientation{ {"min", 0}, {"max", 0}, {"value", 0} };
+			QJsonArray positionData;
 
-            // Loop over all children.
-            for (auto value : positionData)
-            {
-                QJsonObject panelObj = value.toObject();
+			for (int i = 0; i < length; ++i)
+			{
+				QJsonObject panel{ {"panelId", i}, {"x", i * 10}, {"y", 0}, {"o", 0}, {"shapeType", 0} };
+				positionData.append(panel);
+			}
 
-                int panelId = panelObj[PANEL_ID].toInt();
-                int panelX = panelObj[PANEL_POS_X].toInt();
-                int panelY = panelObj[PANEL_POS_Y].toInt();
-                int panelshapeType = panelObj[PANEL_SHAPE_TYPE].toInt();
-                //int panelOrientation = panelObj[PANEL_ORIENTATION].toInt();
+			jsonLayout = QJsonObject{ {"numPanels", length}, {"sideLength", 0}, {"positionData", positionData} };
 
-                DebugIf(verbose, _log, "Panel [%d] (%d,%d) - Type: [%d]", panelId, panelX, panelY, panelshapeType);
+			jsonPanelLayout["globalOrientation"] = globalOrientation;
+			jsonPanelLayout["layout"] = jsonLayout;
+		}
+		else if (jsonAllPanelInfo.contains(API_PANELLAYOUT))
+		{
+			Debug(_log, "Default Layout");
+			// Get panel details from /panelLayout/layout
+			jsonPanelLayout = jsonAllPanelInfo[API_PANELLAYOUT].toObject();
+			jsonLayout = jsonPanelLayout[PANEL_LAYOUT].toObject();
+		}
+		else
+		{
+			this->setInError("Missing panel layout information");
+			return false;
+		}
 
-                // Skip Rhythm panels
-                if (panelshapeType != RHYTM)
-                {
-                    panelMap[panelY][panelX] = panelId;
-                }
-                else
-                {	// Reset non support/required features
-                    Info(_log, "Rhythm panel skipped.");
-                }
-            }
+		Debug(_log, "PanelLayout: %s", QSTRING_CSTR(QString(QJsonDocument(jsonPanelLayout).toJson(QJsonDocument::Compact))));
 
-            // Traverse panels top down
-            for (auto posY = panelMap.crbegin(); posY != panelMap.crend(); ++posY)
-            {
-                // Sort panels left to right
-                if (_leftRight)
-                {
-                    for (auto posX = posY->second.cbegin(); posX != posY->second.cend(); ++posX)
-                    {
-                        DebugIf(verbose3, _log, "panelMap[%d][%d]=%d", posY->first, posX->first, posX->second);
+		int panelNum = jsonLayout[PANEL_NUM].toInt();
+		const QJsonArray positionData = jsonLayout[PANEL_POSITIONDATA].toArray();
 
-                        if (_topDown)
-                        {
-                            _panelIds.push_back(posX->second);
-                        }
-                        else
-                        {
-                            _panelIds.push_front(posX->second);
-                        }
-                    }
-                }
-                else
-                {
-                    // Sort panels right to left
-                    for (auto posX = posY->second.crbegin(); posX != posY->second.crend(); ++posX)
-                    {
-                        DebugIf(verbose3, _log, "panelMap[%d][%d]=%d", posY->first, posX->first, posX->second);
+		std::map<int, std::map<int, int>> panelMap;
 
-                        if (_topDown)
-                        {
-                            _panelIds.push_back(posX->second);
-                        }
-                        else
-                        {
-                            _panelIds.push_front(posX->second);
-                        }
-                    }
-                }
-            }
+		// Loop over all children.
+		for (auto value : positionData)
+		{
+			QJsonObject panelObj = value.toObject();
 
-            this->_panelLedCount = _panelIds.size();
-        }
+			int panelId = panelObj[PANEL_ID].toInt();
+			int panelX = panelObj[PANEL_POS_X].toInt();
+			int panelY = panelObj[PANEL_POS_Y].toInt();
+			int panelshapeType = panelObj[PANEL_SHAPE_TYPE].toInt();
+			//int panelOrientation = panelObj[PANEL_ORIENTATION].toInt();
 
-        _devConfig["hardwareLedCount"] = _panelLedCount;
+			DebugIf(verbose, _log, "Panel [%d] (%d,%d) - Type: [%d]", panelId, panelX, panelY, panelshapeType);
 
-        Debug(_log, "PanelsNum      : %d", panelNum);
-        Debug(_log, "PanelLedCount  : %d", _panelLedCount);
+			// Skip Rhythm panels
+			if (panelshapeType != RHYTM)
+			{
+				panelMap[panelY][panelX] = panelId;
+			}
+			else
+			{   // Reset non support/required features
+				Info(_log, "Rhythm panel skipped.");
+			}
+		}
 
-        // Check if enough panels were found.
-        int configuredLedCount = this->getLedCount();
-        _endPos = _startPos + configuredLedCount - 1;
+		// Traverse panels top down
+		for (auto posY = panelMap.crbegin(); posY != panelMap.crend(); ++posY)
+		{
+			// Sort panels left to right
+			if (_leftRight)
+			{
+				for (auto posX = posY->second.cbegin(); posX != posY->second.cend(); ++posX)
+				{
+					DebugIf(verbose3, _log, "panelMap[%d][%d]=%d", posY->first, posX->first, posX->second);
 
-        Debug(_log, "Sort Top>Down  : %d", _topDown);
-        Debug(_log, "Sort Left>Right: %d", _leftRight);
-        Debug(_log, "Start Panel Pos: %d", _startPos);
-        Debug(_log, "End Panel Pos  : %d", _endPos);
+					if (_topDown)
+					{
+						_panelIds.push_back(posX->second);
+					}
+					else
+					{
+						_panelIds.push_front(posX->second);
+					}
+				}
+			}
+			else
+			{
+				// Sort panels right to left
+				for (auto posX = posY->second.crbegin(); posX != posY->second.crend(); ++posX)
+				{
+					DebugIf(verbose3, _log, "panelMap[%d][%d]=%d", posY->first, posX->first, posX->second);
 
-        if (_panelLedCount < configuredLedCount)
-        {
-            QString errorReason = QString("Not enough panels [%1] for configured LEDs [%2] found!")
-                .arg(_panelLedCount)
-                .arg(configuredLedCount);
-            this->setInError(errorReason);
-            isInitOK = false;
-        }
-        else
-        {
-            if (_panelLedCount > this->getLedCount())
-            {
-                Info(_log, "%s: More panels [%d] than configured LEDs [%d].", QSTRING_CSTR(this->getActiveDeviceType()), _panelLedCount, configuredLedCount);
-            }
+					if (_topDown)
+					{
+						_panelIds.push_back(posX->second);
+					}
+					else
+					{
+						_panelIds.push_front(posX->second);
+					}
+				}
+			}
+		}
 
-            // Check if start position + number of configured LEDs is greater than number of panels available
-            if (_endPos >= _panelLedCount)
-            {
-                QString errorReason = QString("Start panel [%1] out of range. Start panel position can be max [%2] given [%3] panel available!")
-                    .arg(_startPos).arg(_panelLedCount - configuredLedCount).arg(_panelLedCount);
+		this->_panelLedCount = _panelIds.size();
+		_devConfig["hardwareLedCount"] = _panelLedCount;
 
-                this->setInError(errorReason);
-                isInitOK = false;
-            }
-        }
-    }
-    return isInitOK;
+		Debug(_log, "PanelsNum      : %d", panelNum);
+		Debug(_log, "PanelLedCount  : %d", _panelLedCount);
+
+		// Check if enough panels were found.
+		int configuredLedCount = this->getLedCount();
+		_endPos = _startPos + configuredLedCount - 1;
+
+		Debug(_log, "Sort Top>Down  : %d", _topDown);
+		Debug(_log, "Sort Left>Right: %d", _leftRight);
+		Debug(_log, "Start Panel Pos: %d", _startPos);
+		Debug(_log, "End Panel Pos  : %d", _endPos);
+
+		if (_panelLedCount < configuredLedCount)
+		{
+			QString errorReason = QString("Not enough panels [%1] for configured LEDs [%2] found!")
+				.arg(_panelLedCount)
+				.arg(configuredLedCount);
+			this->setInError(errorReason);
+			isInitOK = false;
+		}
+		else
+		{
+			if (_panelLedCount > this->getLedCount())
+			{
+				Info(_log, "%s: More panels [%d] than configured LEDs [%d].", QSTRING_CSTR(this->getActiveDeviceType()), _panelLedCount, configuredLedCount);
+			}
+
+			// Check if start position + number of configured LEDs is greater than number of panels available
+			if (_endPos >= _panelLedCount)
+			{
+				QString errorReason = QString("Start panel [%1] out of range. Start panel position can be max [%2] given [%3] panel available!")
+					.arg(_startPos).arg(_panelLedCount - configuredLedCount).arg(_panelLedCount);
+
+				this->setInError(errorReason);
+				isInitOK = false;
+			}
+		}
+	}
+	return isInitOK;
 }
 
 bool DriverNetNanoleaf::init(const QJsonObject& deviceConfig)
@@ -555,74 +558,76 @@ bool DriverNetNanoleaf::powerOff()
 	return true;
 }
 
-
-
 int DriverNetNanoleaf::write(const std::vector<ColorRgb>& ledValues)
 {
-    int retVal = 0;
+	int retVal = 0;
+	const int batchSize = 150; // Number of panels to send in each batch
 
-    // Frame structure: 
-    // - 2B: Number of Panels
-    // - (For each panel) 2B: PanelID, 1B: R, 1B: G, 1B: B, 1B: W (0), 2B: TransitionTime
-    int udpBufferSize = 2 + _panelLedCount * 8;  // Each panel entry is 8 bytes
-    QByteArray udpbuffer;
-    udpbuffer.resize(udpBufferSize);
+	// Maintain LED counter independent from PanelCounter
+	int ledCounter = 0;
+	for (int panelCounter = 0; panelCounter < _panelLedCount; panelCounter += batchSize)
+	{
+		int panelsInBatch = std::min(batchSize, _panelLedCount - panelCounter);
+		int udpBufferSize = STREAM_FRAME_PANEL_NUM_SIZE + (panelsInBatch * STREAM_FRAME_PANEL_INFO_SIZE);
+		QByteArray udpbuffer;
+		udpbuffer.resize(udpBufferSize);
 
-    int i = 0;
+		int i = 0;
 
-    // Set the number of panels (Big-Endian)
-    qToBigEndian<quint16>(static_cast<quint16>(_panelLedCount), udpbuffer.data() + i);
-    i += 2;
+		// Set number of panels in the batch
+		qToBigEndian<quint16>(static_cast<quint16>(panelsInBatch), udpbuffer.data() + i);
+		i += 2;
 
-    // Maintain LED counter independent from PanelCounter
-    int ledCounter = 0;
-    for (int panelCounter = 0; panelCounter < _panelLedCount; panelCounter++)
-    {
-        int panelID = _panelIds[panelCounter];
-        ColorRgb color;
+		for (int j = 0; j < panelsInBatch; j++)
+		{
+			int panelID = _panelIds[panelCounter + j];
+			ColorRgb color;
 
-        // Assign colors to configured panels, others default to BLACK
-        if (panelCounter >= _startPos && panelCounter <= _endPos) 
-        {
-            color = static_cast<ColorRgb>(ledValues.at(ledCounter));
-            ++ledCounter;
-        }
-        else 
-        {
-            color = ColorRgb::BLACK;
-        }
+			// Set panels configured
+			if ((panelCounter + j) >= _startPos && (panelCounter + j) <= _endPos) {
+				color = static_cast<ColorRgb>(ledValues.at(ledCounter));
+				++ledCounter;
+			}
+			else
+			{
+				// Set panels not configured to black
+				color = ColorRgb::BLACK;
+			}
 
-        // Set Panel ID (Big-Endian)
-        qToBigEndian<quint16>(static_cast<quint16>(panelID), udpbuffer.data() + i);
-        i += 2;
+			// Set panelID
+			qToBigEndian<quint16>(static_cast<quint16>(panelID), udpbuffer.data() + i);
+			i += 2;
 
-        // Set Panel's RGB color
-        udpbuffer[i++] = static_cast<char>(color.red);
-        udpbuffer[i++] = static_cast<char>(color.green);
-        udpbuffer[i++] = static_cast<char>(color.blue);
+			// Set panel's color LEDs
+			udpbuffer[i++] = static_cast<char>(color.red);
+			udpbuffer[i++] = static_cast<char>(color.green);
+			udpbuffer[i++] = static_cast<char>(color.blue);
 
-        // Set White LED (always 0)
-        udpbuffer[i++] = 0;
+			// Set white LED
+			udpbuffer[i++] = 0; // W not set manually
 
-        // Set Transition Time (Big-Endian, 5 = 500ms)
-        quint16 transitionTime = 5; // 500ms
-        qToBigEndian<quint16>(transitionTime, udpbuffer.data() + i);
-        i += 2;
+			// Set transition time
+			quint16 transitionTime = 0.5; // currently fixed at value 1 which corresponds to 100ms
+			qToBigEndian<quint16>(transitionTime, udpbuffer.data() + i);
+			i += 2;
 
-        DebugIf(verbose3, _log, "[%u] Color: {%u,%u,%u}", panelCounter, color.red, color.green, color.blue);
-    }
+			DebugIf(verbose3, _log, "[%u] Color: {%u,%u,%u}", panelCounter + j, color.red, color.green, color.blue);
+		}
 
-    if (verbose3)
-    {
-        Debug(_log, "UDP-Address [%s], UDP-Port [%u], udpBufferSize[%d], Bytes to send [%d]", 
-            QSTRING_CSTR(_address.toString()), _port, udpBufferSize, i);
-        Debug(_log, "packet: [%s]", QSTRING_CSTR(toHex(udpbuffer, 64)));
-    }
+		if (verbose3)
+		{
+			Debug(_log, "UDP-Address [%s], UDP-Port [%u], udpBufferSize[%d], Bytes to send [%d]", QSTRING_CSTR(_address.toString()), _port, udpBufferSize, i);
+			Debug(_log, "packet: [%s]", QSTRING_CSTR(toHex(udpbuffer, 128)));
+		}
 
-    // Send the frame via UDP
-    retVal = writeBytes(udpbuffer);
-    return retVal;
+		// Send the frame via UDP
+		retVal = writeBytes(udpbuffer);
+
+		// Introduce a slight delay between batches
+		QThread::msleep(10);
+	}
+
+	return retVal;
 }
-
 
 bool DriverNetNanoleaf::isRegistered = hyperhdr::leds::REGISTER_LED_DEVICE("nanoleaf", "leds_group_2_network", DriverNetNanoleaf::construct);

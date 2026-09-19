@@ -1,0 +1,14 @@
+.git
+.github
+.vs
+.idea
+.ccache
+build
+cmake-build-debug
+deploy
+scripts
+*.user
+*.swp
+.DS_Store
+compile_commands.json
+CMakeSettings.json

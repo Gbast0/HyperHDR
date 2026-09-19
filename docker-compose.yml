@@ -1,0 +1,22 @@
+services:
+  hyperhdr:
+    build: .
+    image: hyperhdr:nanoleaf
+    container_name: hyperhdr
+    restart: unless-stopped
+    environment:
+      TZ: Australia/Sydney
+    volumes:
+      - hyperhdr-config:/config
+    ports:
+      - "8090:8090"
+      - "8092:8092"
+      - "19400:19400"
+      - "19444:19444"
+      - "19445:19445"
+    # Uncomment on Linux for Nanoleaf SSDP discovery. Docker Desktop on Windows
+    # cannot use true host networking; add the strip IP in the web UI instead.
+    # network_mode: host
+
+volumes:
+  hyperhdr-config:

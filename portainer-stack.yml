@@ -1,0 +1,30 @@
+# Paste this in Portainer → Stacks → Add stack → Web editor
+# Name: hyperhdr
+# Endpoint: the Docker host at 192.168.1.10
+#
+# This uses host networking so Nanoleaf SSDP/mDNS can see the strip.
+# Config persists in the `hyperhdr-config` volume (Volumes page).
+#
+# The image is built from this repo. In Portainer, prefer
+# Stacks → Add stack → Repository:
+#   Repository URL: https://github.com/Gbast0/HyperHDR
+#   Repository reference: nanoleaf-essentials
+#   Compose path: portainer-stack.yml
+# and enable "Build from Dockerfile" if offered.
+# Until the Dockerfile is on that branch, use Web editor + a pre-built image.
+
+services:
+  hyperhdr:
+    image: hyperhdr:nanoleaf
+    build: .
+    container_name: hyperhdr
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: Australia/Sydney
+    volumes:
+      - hyperhdr-config:/config
+
+volumes:
+  hyperhdr-config:
+    name: hyperhdr-config

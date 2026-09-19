@@ -25,6 +25,9 @@ print_manual()
 	printf "\n   ${YellowColor2}debian${ColorReset}    | ${YellowColor2}trixie${ColorReset}         | ${YellowColor2}armhf${ColorReset}"
 	printf "\n   ${YellowColor2}debian${ColorReset}    | ${YellowColor2}trixie${ColorReset}         | ${YellowColor2}arm64${ColorReset}"
 	printf "\n   ${YellowColor2}debian${ColorReset}    | ${YellowColor2}trixie${ColorReset}         | ${YellowColor2}amd64${ColorReset}"
+	printf "\n   ${YellowColor2}debian${ColorReset}    | ${YellowColor2}forky${ColorReset}          | ${YellowColor2}armhf${ColorReset}"
+	printf "\n   ${YellowColor2}debian${ColorReset}    | ${YellowColor2}forky${ColorReset}          | ${YellowColor2}arm64${ColorReset}"
+	printf "\n   ${YellowColor2}debian${ColorReset}    | ${YellowColor2}forky${ColorReset}          | ${YellowColor2}amd64${ColorReset}"
 	printf "\n   ${YellowColor2}ubuntu${ColorReset}    | ${YellowColor2}noble${ColorReset}          | ${YellowColor2}amd64${ColorReset}"
 	printf "\n   ${YellowColor2}ubuntu${ColorReset}    | ${YellowColor2}resolute${ColorReset}       | ${YellowColor2}amd64${ColorReset}"
 	printf "\n   ${YellowColor2}fedora${ColorReset}    | ${YellowColor2}44${ColorReset}             | ${YellowColor2}amd64${ColorReset}"
@@ -227,7 +230,7 @@ elif [[ "$CI_NAME" == 'linux' ]]; then
 		fi
 
 		echo ${executeCommand}
-		sed -i "s/{VERSION}/${versionFile}/" PKGBUILD
+		sed -i "s/{VERSION}/${versionFile//-/.}/" PKGBUILD
 		sed -i "s/{BUILD_OPTION}/${BUILD_OPTION}/" PKGBUILD
 		chmod -R a+rw ${CI_BUILD_DIR}/.ccache
 	else
